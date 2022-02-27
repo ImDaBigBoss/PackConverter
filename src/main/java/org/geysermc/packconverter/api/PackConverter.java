@@ -42,6 +42,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -69,6 +70,13 @@ public class PackConverter {
         // This is quite slow, maybe try and find a faster method?
         tmpDir = input.toAbsolutePath().getParent().resolve(input.getFileName() + "_mcpack/");
         ZipFile zipFile = new ZipFile(input.toFile());
+
+        if (Files.exists(tmpDir)) {
+            Stream<Path> walk = Files.walk(tmpDir);
+            walk.sorted(Comparator.reverseOrder())
+                    .map(Path::toFile)
+                    .forEach(File::delete);
+        }
 
         ZipEntry entry;
         final Enumeration<? extends ZipEntry> entries = zipFile.entries();

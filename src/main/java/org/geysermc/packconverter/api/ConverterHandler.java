@@ -67,10 +67,16 @@ public class ConverterHandler {
         converterList.add(BeeConverter.class);
         converterList.add(TitleConverter.class);
         converterList.add(DespriteConverter.class);
-        if (enableExperimental) { converterList.add(DespriteExperimentalConverter.class); } // Experimental
+        if (enableExperimental) { // Experimental
+            converterList.add(DespriteExperimentalConverter.class);
+        }
         converterList.add(BarConverter.class);
-        if (enableExperimental) { converterList.add(NineSliceConverter.class); } // Experimental
-        //if (enableExperimental) { converterList.add(DialogConverter.class); } // Experimental TODO: Finish
+        if (enableExperimental) { // Experimental
+            converterList.add(NineSliceConverter.class);
+        }
+        /*if (enableExperimental) { // Experimental TODO: Finish
+            converterList.add(DialogConverter.class);
+        }*/
         converterList.add(OverlayToTranslateConverter.class);
         converterList.add(ColorizeOverlayConverter.class);
         converterList.add(PlaceholderConverter.class);

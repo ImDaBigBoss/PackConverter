@@ -29,7 +29,6 @@ package org.geysermc.packconverter.api.converters;
 import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -37,6 +36,8 @@ import lombok.Getter;
 import org.geysermc.packconverter.api.PackConverter;
 import org.geysermc.packconverter.api.utils.CustomModelDataHandler;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -71,11 +72,18 @@ public class CustomModelDataConverter extends AbstractConverter {
             textureData.put("resource_pack_name", "geysercmd");
             textureData.put("texture_name", "atlas.items");
             ObjectNode allTextures = mapper.createObjectNode();
+
+            // Create the item mappings file
+            ObjectNode itemMappings = mapper.createObjectNode();
+
             for (File file : storage.resolve(from).toFile().listFiles()) {
                 InputStream stream = new FileInputStream(file);
 
                 JsonNode node = mapper.readTree(stream);
                 if (node.has("overrides")) {
+                    String javaItem = file.getName().replace(".json", "");
+                    List<ObjectNode> tmpMappings = new ArrayList<>();
+
                     for (JsonNode override : node.get("overrides")) {
                         JsonNode predicate = override.get("predicate");
                         // This is where the custom model data happens - each one is registered here under "predicate"
@@ -83,16 +91,18 @@ public class CustomModelDataConverter extends AbstractConverter {
                             // The "ID" of the CustomModelData. If the ID is 1, then to get the custom model data
                             // You need to run in Java `/give @s stick{CustomModelData:1}`
                             int id = predicate.get("custom_model_data").asInt();
-                            // Get the identifier that we'll register the item with on Bedrock, and create the JSON file
-                            String identifier = CustomModelDataHandler.handleItemData(mapper, storage, override.get("model").asText());
+                            // Get the identifier that we'll register the item with on Bedrock, and create the mappings data
+                            String cleanIdentifier = override.get("model").asText().replace("item/", "");
+                            String identifier = "geysercmd:" + cleanIdentifier;
+
                             // See if we have registered the vanilla item already
-                            Int2ObjectMap<String> data = packConverter.getCustomModelData().getOrDefault(file.getName().replace(".json", ""), null);
+                            Int2ObjectMap<String> data = packConverter.getCustomModelData().getOrDefault(javaItem, null);
                             if (data == null) {
                                 // Create a fresh map of Java CustomModelData IDs to Bedrock string identifiers
                                 Int2ObjectMap<String> map = new Int2ObjectOpenHashMap<>();
                                 map.put(id, identifier);
                                 // Put the vanilla item (stick) and the initialized map in the custom model data table
-                                packConverter.getCustomModelData().put(file.getName().replace(".json", ""), map);
+                                packConverter.getCustomModelData().put(javaItem, map);
                             } else {
                                 // Map exists, add the new CustomModelData ID and Bedrock string identifier
                                 data.put(id, identifier);
@@ -104,9 +114,46 @@ public class CustomModelDataConverter extends AbstractConverter {
                                 // If texture was created, add it to the file where Bedrock will read all textures
                                 allTextures.setAll(textureInfo);
                             }
+
+                            // Create the mapping file data
+                            ObjectNode mapping = mapper.createObjectNode();
+                            mapping.put("name", cleanIdentifier);
+                            mapping.put("custom_model_data", id);
+
+                            File textureFile = storage.resolve("textures/items").resolve(cleanIdentifier + ".png").toFile();
+                            if (textureFile.exists()) {
+                                BufferedImage image = ImageIO.read(textureFile);
+                                if (image.getWidth() != 16) {
+                                    mapping.put("texture_size", image.getWidth());
+                                }
+                            }
+
+                            File itemModel = storage.resolve("assets/minecraft/models").resolve(override.get("model").asText() + ".json").toFile();
+                            if (itemModel.exists()) {
+                                JsonNode model = mapper.readTree(itemModel);
+                                if (model.has("parent")) {
+                                    mapping.put("is_tool", model.get("parent").asText().equals("item/handheld"));
+                                }
+                            }
+
+                            tmpMappings.add(mapping);
                         }
                     }
+
+                    // Add the mappings to the item mappings file
+                    if (!tmpMappings.isEmpty()) {
+                        itemMappings.set("minecraft:" + javaItem, mapper.valueToTree(tmpMappings));
+                    }
                 }
+            }
+
+            if (!itemMappings.isEmpty()) {
+                ObjectNode mappingFile = mapper.createObjectNode();
+                mappingFile.put("format_version", "1.0.0");
+                mappingFile.set("items", itemMappings);
+
+                OutputStream outputStream = Files.newOutputStream(storage.resolve("../item_mappings.json"), StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.CREATE);
+                mapper.writer(new DefaultPrettyPrinter()).writeValue(outputStream, mappingFile);
             }
 
             textureData.set("texture_data", allTextures);
