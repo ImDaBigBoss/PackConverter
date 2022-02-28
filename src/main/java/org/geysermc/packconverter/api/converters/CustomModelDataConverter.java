@@ -136,6 +136,8 @@ public class CustomModelDataConverter extends AbstractConverter {
                                 }
                             }
 
+                            mapping.put("allow_offhand", true);
+
                             tmpMappings.add(mapping);
                         }
                     }
