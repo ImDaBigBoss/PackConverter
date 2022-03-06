@@ -28,68 +28,23 @@ package org.geysermc.packconverter.api.utils;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.geysermc.packconverter.api.PackConverter;
 
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
+import java.nio.file.StandardCopyOption;
 
 public class CustomModelDataHandler {
-
-    public static String handleItemData(ObjectMapper mapper, Path storage, String filePath) {
-        // Start the creation of the JSON that registers the object
-        ObjectNode item = mapper.createObjectNode();
-        // Standard JSON
-        item.put("format_version", "1.16.0");
-        ObjectNode itemData = mapper.createObjectNode();
-        ObjectNode itemDescription = mapper.createObjectNode();
-
-        // Full identifier with geysercmd prefix (cmd for CustomModelData - just in case it clashes with something we do in the future)
-        String identifier = "geysercmd:" + filePath.replace("item/", "");
-        // Register the full identifier
-        itemDescription.put("identifier", identifier);
-        itemData.set("description", itemDescription);
-        ObjectNode itemComponent = mapper.createObjectNode();
-        // Define which texture in item_texture.json this should use. We just set it to the "clean identifier"
-        itemComponent.put("minecraft:icon", identifier.replace("geysercmd:", ""));
-        // TODO: Apply components based off the original item
-        // TODO: Components tell Bedrock how the item operates, how much you can stack, can you eat it, etc
-        // TODO: We can probably generate this from the mappings-generator as the Bedrock vanilla behavior pack doesn't define every item
-        itemComponent.put("minecraft:render_offsets", "tools");
-        itemData.set("components", itemComponent);
-        item.set("minecraft:item", itemData);
-
-        // Create, if necessary, the folder that stores all item information
-        File itemJsonFile = storage.resolve("items").toFile();
-        if (!itemJsonFile.exists()) {
-            itemJsonFile.mkdir();
-        }
-
-        // Write our item information
-        Path path = itemJsonFile.toPath().resolve(filePath.replace("item/", "") + ".json");
-        try (OutputStream outputStream = Files.newOutputStream(path,
-                StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.CREATE)) {
-            mapper.writer().writeValue(outputStream, item);
-        } catch (IOException e) {
-            e.printStackTrace();
-            return null;
-        }
-
-        return identifier;
-    }
-
-    public static ObjectNode handleItemTexture(ObjectMapper mapper, Path storage, String filePath) {
-        String cleanIdentifier = filePath.replace("item/", "");
-
+    public static String handleItemTexture(PackConverter packConverter, ObjectMapper mapper, Path storage, File modelFile) {
         InputStream stream;
         JsonNode textureFile;
         try {
             // Read the model information for the Java CustomModelData
-            stream = new FileInputStream(storage.resolve("assets/minecraft/models/" + filePath + ".json").toFile());
+            stream = new FileInputStream(modelFile);
             textureFile = mapper.readTree(stream);
         } catch (IOException e) {
-            e.printStackTrace();
+            packConverter.log("Failed to read model file at " + modelFile.getAbsolutePath() + ": " + e.getMessage());
             return null;
         }
 
@@ -97,13 +52,35 @@ public class CustomModelDataHandler {
         if (textureFile.has("textures")) {
             if (textureFile.get("textures").has("0") || textureFile.get("textures").has("layer0")) {
                 String determine = textureFile.get("textures").has("0") ? "0" : "layer0";
-                ObjectNode textureData = mapper.createObjectNode();
-                ObjectNode textureName = mapper.createObjectNode();
-                // Make JSON data for Bedrock pointing to where texture data for this item is stored
-                textureName.put("textures", textureFile.get("textures").get(determine).textValue().replace("item/", "textures/items/"));
-                // Have the identifier point to that texture data
-                textureData.set(cleanIdentifier, textureName);
-                return textureData;
+
+                String path = textureFile.get("textures").get(determine).asText();
+                String namespace = "minecraft";
+                if (path.contains(":")) {
+                    namespace = path.split(":")[0];
+                    path = path.substring(namespace.length() + 1);
+                }
+
+                Path input = storage.resolve("assets/" + namespace + "/textures/" + path + ".png").toAbsolutePath();
+                if (path.startsWith("item/")) {
+                    path = "textures/items/" + path.substring(5);
+                } else if (path.startsWith("block/")) {
+                    path = "textures/blocks/" + path.substring(6);
+                }
+                if (!path.startsWith("textures/")) {
+                    path = "textures/" + path;
+                }
+
+                if (!namespace.equals("minecraft")) {
+                    Path output = storage.resolve(path + ".png").toAbsolutePath();
+                    try {
+                        output.getParent().toFile().mkdirs();
+                        Files.copy(input, output, StandardCopyOption.REPLACE_EXISTING);
+                    } catch (IOException e) {
+                        packConverter.log("Failed to copy needed texture for " + modelFile.getAbsolutePath() + ": " + e.getMessage());
+                        return null;
+                    }
+                }
+                return path;
             }
         }
 
